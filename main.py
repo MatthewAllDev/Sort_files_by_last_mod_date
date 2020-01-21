@@ -1,49 +1,56 @@
 # Script to sort files by last modified date.
 # author Ilya Matthew Kuvarzin <luceo2011@yandex.ru>
-# version 1.1 dated January 20, 2020
+# version 1.2 dated January 21, 2020
 
 import os.path
 from datetime import datetime
 from hashlib import md5
-
-# SETTINGS
-recursively = True  # Sort files from subfolders?
-delete_duplicate_files = True  # Delete files with the same checksum?
-delete_empty_directory = True  # Delete processed directory if empty?
-input_directories = ['D:/FILES']  # List input directories. Example: ['/home/Images', '/home/Photos']
-output_directories = 'D:/FILES SORTED'  # Output folder
-files_extensions = ['.jpg', '.png']  # List file extensions. Example: ['.png', '.jpg', '.avi', '.txt']
+import settings
 
 
-def check_extension(file):
-    for extension in files_extensions:
-        if file.lower().endswith(extension.lower()):
-            return True
+def get_group(file):
+    for group in settings.files_extensions:
+        for extension in settings.files_extensions[group]:
+            if file.lower().endswith(extension.lower()):
+                return group
+    return False
 
 
 def get_checksum(file):
     checksum = md5()
     with open(file, 'rb') as f:
-        for chunk in iter(lambda: f.read(128* checksum.block_size), b''):
+        for chunk in iter(lambda: f.read(128 * checksum.block_size), b''):
             checksum.update(chunk)
     f.close()
     return checksum.hexdigest()
 
 
 def move_file(input_file, output_file):
-    try:
-        os.rename(input_file, output_file)
-    except FileExistsError:
-        if delete_duplicate_files:
+    if not os.path.exists(output_file):
+        try:
+            os.rename(input_file, output_file)
+        except OSError:
+            print('Move file %s failed' % input_file)
+            return
+    else:
+        if settings.delete_duplicate_files:
             if get_checksum(input_file) == get_checksum(output_file):
                 os.remove(input_file)
                 return
         extension = output_file[output_file.lower().rfind('.'):]
         file_name = output_file[:output_file.lower().rfind('.')]
         move_file(input_file, '%s(1)%s' % (file_name, extension))
-    except OSError:
-        print('Move file %s failed' % input_file)
-        return
+
+
+def get_output_directory_tree(folder_name, date):
+    tree = settings.output_directory_tree.replace('$extension_folder', folder_name)
+    tree = tree.replace('$year', str(date.year))
+    tree = tree.replace('$month', str(date.month))
+    tree = tree.replace('$day', str(date.day))
+    tree = tree.replace('$hour', str(date.hour))
+    tree = tree.replace('$minute', str(date.minute))
+    tree = tree.replace('$second', str(date.second))
+    return tree
 
 
 def move_files(directory):
@@ -56,12 +63,13 @@ def move_files(directory):
         print('Processing directory %s failed' % directory)
         return
     for file in files:
-        if os.path.isdir('%s/%s' % (directory, file)) and recursively:
+        if os.path.isdir('%s/%s' % (directory, file)) and settings.recursively:
             move_files('%s/%s' % (directory, file))
             continue
-        if check_extension(file):
+        group = get_group(file)
+        if group:
             date = datetime.fromtimestamp(os.path.getmtime('%s/%s' % (directory, file)))
-            folder = '%s/%i/%i/%i' % (output_directories, date.year, date.month, date.day)
+            folder = '%s/%s' % (settings.output_directory, get_output_directory_tree(group, date))
             input_file = '%s/%s' % (directory, file)
             output_file = '%s/%s' % (folder, file)
             if os.path.exists(folder):
@@ -73,7 +81,7 @@ def move_files(directory):
                     print('Create directory %s failed' % folder)
                     return
                 move_file(input_file, output_file)
-    if (len(os.listdir(directory)) == 0) and delete_empty_directory:
+    if (len(os.listdir(directory)) == 0) and settings.delete_empty_directory:
         try:
             os.rmdir(directory)
         except OSError:
@@ -81,5 +89,5 @@ def move_files(directory):
             return
 
 
-for d in input_directories:
+for d in settings.input_directories:
     move_files(d)
