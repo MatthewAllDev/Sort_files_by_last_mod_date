@@ -1,14 +1,17 @@
 # Script to sort files by last modified date.
 # author Ilya Matthew Kuvarzin <luceo2011@yandex.ru>
-# version 1.2 dated January 21, 2020
+# version 1.3 dated February 03, 2020
 
 import os.path
 from datetime import datetime
 from hashlib import md5
 import settings
+import re
 
 
 def get_group(file):
+    if len(settings.files_extensions) == 0:
+        return True
     for group in settings.files_extensions:
         for extension in settings.files_extensions[group]:
             if file.lower().endswith(extension.lower()):
@@ -42,8 +45,23 @@ def move_file(input_file, output_file):
         move_file(input_file, '%s(1)%s' % (file_name, extension))
 
 
-def get_output_directory_tree(folder_name, date):
-    tree = settings.output_directory_tree.replace('$extension_folder', folder_name)
+def get_output_directory_tree(file_name, folder_name, date, other_file):
+    file_names = re.findall(r'\$file_name\[\d*:?\d*\]', settings.output_directory_tree)
+    if not other_file:
+        tree = settings.output_directory_tree
+    else:
+        tree = settings.output_directory_other_file_tree
+    pos = file_name.rfind('.')
+    extension = file_name[pos+1:]
+    file_name = file_name[:pos]
+    for file_name_variable in file_names:
+        fragment = eval(file_name_variable.replace('$file_name', 'file_name'))
+        tree = tree.replace(file_name_variable, fragment)
+    if type(folder_name) != bool:
+        tree = tree.replace('$extension_folder', folder_name)
+    else:
+        tree = re.sub(r'/?\$extension_folder/?', '/', tree)
+    tree = tree.replace('$extension', extension)
     tree = tree.replace('$year', str(date.year))
     tree = tree.replace('$month', str(date.month))
     tree = tree.replace('$day', str(date.day))
@@ -67,9 +85,13 @@ def move_files(directory):
             move_files('%s/%s' % (directory, file))
             continue
         group = get_group(file)
-        if group:
+        if group or settings.move_other_files:
             date = datetime.fromtimestamp(os.path.getmtime('%s/%s' % (directory, file)))
-            folder = '%s/%s' % (settings.output_directory, get_output_directory_tree(group, date))
+            if not group:
+                other = True
+            else:
+                other = False
+            folder = '%s/%s' % (settings.output_directory, get_output_directory_tree(file, group, date, other))
             input_file = '%s/%s' % (directory, file)
             output_file = '%s/%s' % (folder, file)
             if os.path.exists(folder):
@@ -81,6 +103,7 @@ def move_files(directory):
                     print('Create directory %s failed' % folder)
                     return
                 move_file(input_file, output_file)
+
     if (len(os.listdir(directory)) == 0) and settings.delete_empty_directory:
         try:
             os.rmdir(directory)
